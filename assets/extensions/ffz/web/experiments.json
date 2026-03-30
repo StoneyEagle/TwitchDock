@@ -1,0 +1,38 @@
+{
+	"api_load": {
+		"in_use": false,
+		"name": "New API Stress Testing",
+		"description": "Send duplicate requests to the new API server for load testing.",
+		"groups": [
+			{"value": true, "weight": 0},
+			{"value": false, "weight": 100}
+		]
+	},
+	"api_links": {
+		"in_use": false,
+		"groups": [
+			{"value": false, "weight": 100}
+		]
+	},
+	"emqx_pubsub": {
+		"in_use": false,
+		"groups": [
+			{"value": false, "weight": 100}
+		]
+	},
+	"cf_pubsub": {
+		"in_use": false,
+		"groups": [
+			{"value": true, "weight": 0},
+			{"value": false, "weight": 100}
+		]
+	},
+	"worker_pubsub": {
+		"name": "Worker PubSub",
+		"description": "Whether or not to connect to the new Cloudflare Worker based PubSub system.",
+		"groups": [
+			{"value": true, "weight": 0},
+			{"value": false, "weight": 100}
+		]
+	}
+}
