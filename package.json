@@ -1,6 +1,6 @@
 {
   "name": "twitchdock",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Lightweight Twitch chat dock with FrankerFaceZ support",
   "author": "Stoney_Eagle",
   "main": "src/main.js",
@@ -21,10 +21,14 @@
       "assets/extensions/**/*"
     ],
     "win": {
-      "target": [
-        "portable"
-      ],
+      "target": "nsis",
       "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopIcon": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TwitchDock"
     },
     "mac": {
       "target": "dmg",
