@@ -19,7 +19,9 @@ let tray;
 const chatWindows = new Map();
 const rootDir = path.join(__dirname, '..');
 const appIcon = nativeImage.createFromPath(path.join(rootDir, 'assets', 'icon.png'));
-const ffzExtPath = path.join(rootDir, 'assets', 'extensions', 'ffz');
+// In production, asarUnpack extracts to app.asar.unpacked/
+const unpackedRoot = rootDir.replace('app.asar', 'app.asar.unpacked');
+const ffzExtPath = path.join(unpackedRoot, 'assets', 'extensions', 'ffz');
 
 function createTray() {
   tray = new Tray(appIcon);
