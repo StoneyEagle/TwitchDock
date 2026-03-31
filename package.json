@@ -18,7 +18,9 @@
       "assets/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "portable"
+      ],
       "icon": "assets/icon.png"
     },
     "mac": {
