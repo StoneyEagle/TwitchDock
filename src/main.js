@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain, session, Tray, Menu, nativeImage, dialog, s
 const path = require('path');
 const fs = require('fs');
 
-// Simple JSON store since electron-store v8+ is ESM-only
+// ── Store ──────────────────────────────────────────────────────────────────────
+
 let storePath;
 const store = {
   _data: {},
@@ -14,20 +15,28 @@ const store = {
   set(key, val) { this._data[key] = val; fs.writeFileSync(storePath, JSON.stringify(this._data, null, 2)); },
 };
 
+// ── Constants ──────────────────────────────────────────────────────────────────
+
 let mainWindow;
 let tray;
 const chatWindows = new Map();
 const rootDir = path.join(__dirname, '..');
 const appIcon = nativeImage.createFromPath(path.join(rootDir, 'assets', 'icon.png'));
-// In production, asarUnpack extracts to app.asar.unpacked/
 const unpackedRoot = rootDir.replace('app.asar', 'app.asar.unpacked');
 const ffzExtPath = path.join(unpackedRoot, 'assets', 'extensions', 'ffz');
+
+// Cache file reads so we don't hit disk on every dom-ready
+const barCSS = fs.readFileSync(path.join(__dirname, 'bar.css'), 'utf8');
+const barJS = fs.readFileSync(path.join(__dirname, 'bar.js'), 'utf8');
+const ffzInjectJS = fs.readFileSync(path.join(__dirname, 'ffz-inject.js'), 'utf8');
+
+// ── Tray ───────────────────────────────────────────────────────────────────────
 
 function createTray() {
   tray = new Tray(appIcon);
   tray.setToolTip('TwitchDock');
 
-  const contextMenu = Menu.buildFromTemplate([
+  tray.setContextMenu(Menu.buildFromTemplate([
     {
       label: 'Show',
       click: () => {
@@ -47,9 +56,7 @@ function createTray() {
         app.quit();
       },
     },
-  ]);
-
-  tray.setContextMenu(contextMenu);
+  ]));
 
   tray.on('double-click', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -60,6 +67,8 @@ function createTray() {
     }
   });
 }
+
+// ── Main Window ────────────────────────────────────────────────────────────────
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -78,7 +87,6 @@ function createMainWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'pages', 'index.html'));
 
-  // Hide to tray instead of closing
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {
       e.preventDefault();
@@ -87,10 +95,11 @@ function createMainWindow() {
   });
 }
 
+// ── Chat Window ────────────────────────────────────────────────────────────────
+
 function createChatWindow(channel) {
   const key = channel.toLowerCase();
 
-  // If already open for this channel, focus it instead
   if (chatWindows.has(key)) {
     const existing = chatWindows.get(key);
     if (!existing.isDestroyed()) {
@@ -99,7 +108,6 @@ function createChatWindow(channel) {
     }
   }
 
-  // Offset new windows so they don't stack exactly
   const offset = chatWindows.size * 30;
   const bounds = store.get('chatBounds', { width: 400, height: 750 });
 
@@ -116,7 +124,6 @@ function createChatWindow(channel) {
     transparent: false,
     alwaysOnTop: store.get('alwaysOnTop', false),
     webPreferences: {
-      preload: path.join(__dirname, 'preloads', 'preload-chat.js'),
       contextIsolation: false,
       nodeIntegration: false,
       sandbox: false,
@@ -128,7 +135,6 @@ function createChatWindow(channel) {
   chatWindow.setMenuBarVisibility(false);
   chatWindow.setOpacity(store.get('chatOpacity', 1));
 
-  // Save position/size on move/resize
   const saveBounds = () => {
     if (!chatWindow.isDestroyed()) {
       store.set('chatBounds', chatWindow.getBounds());
@@ -137,37 +143,32 @@ function createChatWindow(channel) {
   chatWindow.on('resize', saveBounds);
   chatWindow.on('move', saveBounds);
 
-  const chatUrl = `https://www.twitch.tv/popout/${key}/chat?popout=`;
-  chatWindow.loadURL(chatUrl);
+  chatWindow.loadURL(`https://www.twitch.tv/popout/${key}/chat?popout=`);
 
-  // Inject control bar
+  // Inject FFZ settings and control bar on page load
   chatWindow.webContents.on('dom-ready', () => {
-    // Inject FFZ settings via chrome.storage.local
+    // FFZ settings → chrome.storage.local
     const ffzSettings = store.get('ffzSettings', null);
     if (ffzSettings) {
       const storageData = {};
       for (const [k, v] of Object.entries(ffzSettings)) {
         storageData['FFZ:setting:' + k] = JSON.stringify(v);
       }
-      const ffzInjectCode = fs.readFileSync(path.join(__dirname, 'ffz-inject.js'), 'utf8');
       chatWindow.webContents.executeJavaScript(`window.__TWITCHDOCK_FFZ_SETTINGS__ = ${JSON.stringify(storageData)};`)
-        .then(() => chatWindow.webContents.executeJavaScript(ffzInjectCode))
+        .then(() => chatWindow.webContents.executeJavaScript(ffzInjectJS))
         .catch(() => {});
     }
 
-    // insertCSS injects as user-agent level - highest priority, can't be overridden
-    const barCSS = fs.readFileSync(path.join(__dirname, 'bar.css'), 'utf8');
+    // Control bar
     chatWindow.webContents.insertCSS(barCSS);
     const opacity = store.get('chatOpacity', 1);
-    const barCode = fs.readFileSync(path.join(__dirname, 'bar.js'), 'utf8');
     chatWindow.webContents.executeJavaScript(`window.__TWITCHDOCK_OPACITY__ = ${opacity};`)
-      .then(() => chatWindow.webContents.executeJavaScript(barCode))
-      .catch((e) => console.error('[Bar] Inject error:', e));
-
+      .then(() => chatWindow.webContents.executeJavaScript(barJS))
+      .catch(() => {});
   });
 
-  // Handle lock/pin/close via console message hack (no IPC needed)
-  chatWindow.webContents.on('console-message', (event, level, msg) => {
+  // Handle bar button actions via console messages
+  chatWindow.webContents.on('console-message', (_e, _level, msg) => {
     if (msg === '__lock__') {
       const locked = chatWindow.isMovable();
       chatWindow.setMovable(!locked);
@@ -195,19 +196,21 @@ function createChatWindow(channel) {
   });
 }
 
-// IPC handlers
-ipcMain.handle('get-ffz-settings', () => {
-  return store.get('ffzSettings', null);
-});
+// ── IPC Handlers ───────────────────────────────────────────────────────────────
 
-ipcMain.on('get-ffz-settings-sync', (event) => {
-  event.returnValue = store.get('ffzSettings', null);
-});
-
-ipcMain.handle('open-chat', (event, channel) => {
+ipcMain.handle('open-chat', (_e, channel) => {
   store.set('lastChannel', channel);
   createChatWindow(channel);
   return true;
+});
+
+ipcMain.handle('get-last-channel', () => store.get('lastChannel', ''));
+
+ipcMain.handle('open-external', (_e, url) => shell.openExternal(url));
+
+ipcMain.handle('quit-app', () => {
+  app.isQuitting = true;
+  app.quit();
 });
 
 ipcMain.handle('import-ffz-settings', async () => {
@@ -224,23 +227,19 @@ ipcMain.handle('import-ffz-settings', async () => {
     if (!data.values || data.type !== 'full') {
       return { error: 'Not a valid FFZ settings export' };
     }
-
-    // Store the FFZ settings so we can inject them into chat windows
     store.set('ffzSettings', data.values);
-
     return { ok: true, keys: Object.keys(data.values).length };
   } catch (e) {
     return { error: e.message };
   }
 });
 
-ipcMain.handle('open-external', (event, url) => {
-  shell.openExternal(url);
-});
-
-ipcMain.handle('quit-app', () => {
-  app.isQuitting = true;
-  app.quit();
+ipcMain.handle('is-logged-in', async () => {
+  const twitchSession = session.fromPartition('persist:twitch');
+  const cookies = await twitchSession.cookies.get({ domain: '.twitch.tv', name: 'auth-token' });
+  if (!cookies.length) return { loggedIn: false };
+  const loginCookies = await twitchSession.cookies.get({ domain: '.twitch.tv', name: 'login' });
+  return { loggedIn: true, name: loginCookies.length ? loginCookies[0].value : null };
 });
 
 ipcMain.handle('twitch-login', () => {
@@ -257,26 +256,9 @@ ipcMain.handle('twitch-login', () => {
       },
     });
     loginWin.setMenuBarVisibility(false);
-
-    // Intercept Twitch's response and inject a script BEFORE their code runs
-    // to override the browser support check
-    loginWin.webContents.session.webRequest.onBeforeRequest(
-      { urls: ['*://*.twitch.tv/*'] },
-      (details, callback) => { callback({}); }
-    );
-
-    loginWin.webContents.on('did-finish-load', () => {
-      loginWin.webContents.executeJavaScript(`
-        // Override the browser check result in Twitch's state
-        if (window.__twilight_store__) {
-          try { window.__twilight_store__.getState().ui.browserNotSupported = false; } catch(e) {}
-        }
-      `).catch(() => {});
-    });
-
     loginWin.loadURL('https://www.twitch.tv/login');
 
-    loginWin.webContents.on('did-navigate', (event, url) => {
+    loginWin.webContents.on('did-navigate', (_e, url) => {
       if (url.includes('twitch.tv') && !url.includes('/login') && !url.includes('/passport-callback')) {
         setTimeout(() => {
           loginWin.close();
@@ -288,62 +270,14 @@ ipcMain.handle('twitch-login', () => {
   });
 });
 
-ipcMain.handle('is-logged-in', async () => {
-  const twitchSession = session.fromPartition('persist:twitch');
-  const cookies = await twitchSession.cookies.get({ domain: '.twitch.tv', name: 'auth-token' });
-  if (!cookies.length) return { loggedIn: false };
-  // Get the login name from the login cookie
-  const loginCookies = await twitchSession.cookies.get({ domain: '.twitch.tv', name: 'login' });
-  const name = loginCookies.length ? loginCookies[0].value : null;
-  return { loggedIn: true, name };
-});
+// ── App Events ─────────────────────────────────────────────────────────────────
 
-ipcMain.handle('get-last-channel', () => {
-  return store.get('lastChannel', '');
-});
-
-ipcMain.handle('get-state', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  return {
-    locked: win ? !win.isMovable() : false,
-    alwaysOnTop: win ? win.isAlwaysOnTop() : false,
-  };
-});
-
-ipcMain.handle('toggle-lock', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win || win.isDestroyed()) return false;
-  const locked = win.isMovable();  // if currently movable, we're locking it
-  win.setMovable(!locked);
-  win.setResizable(!locked);
-  return locked;
-});
-
-ipcMain.handle('toggle-always-on-top', (event) => {
-  let win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) {
-    // Fallback: find the parent window of this webContents
-    for (const bw of BrowserWindow.getAllWindows()) {
-      if (bw.webContents === event.sender || bw.webContents.id === event.sender.id) {
-        win = bw;
-        break;
-      }
-    }
-  }
-  if (!win || win.isDestroyed()) return false;
-  const aot = !win.isAlwaysOnTop();
-  win.setAlwaysOnTop(aot);
-  return aot;
-});
-
-// App events
 app.on('ready', () => {
   store._load();
 
   const twitchSession = session.fromPartition('persist:twitch');
   const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-  // Set user agent at the app level so navigator.userAgent matches
   twitchSession.setUserAgent(userAgent);
   session.defaultSession.setUserAgent(userAgent);
 
@@ -353,7 +287,6 @@ app.on('ready', () => {
       callback({ requestHeaders: details.requestHeaders });
     });
 
-    // Strip all CSP headers (case insensitive)
     ses.webRequest.onHeadersReceived((details, callback) => {
       const headers = {};
       for (const [key, val] of Object.entries(details.responseHeaders || {})) {
@@ -365,7 +298,6 @@ app.on('ready', () => {
     });
   }
 
-  // Load FrankerFaceZ Chrome extension
   twitchSession.loadExtension(ffzExtPath, { allowFileAccess: true })
     .then((ext) => console.log('[FFZ] Extension loaded:', ext.name, ext.version))
     .catch((err) => console.error('[FFZ] Failed to load extension:', err));
@@ -373,27 +305,19 @@ app.on('ready', () => {
   createTray();
   createMainWindow();
 
-  // Auto-open login if not already logged in
+  // Auto-open login if not authenticated
   twitchSession.cookies.get({ domain: '.twitch.tv', name: 'auth-token' }).then((cookies) => {
     if (!cookies.length) {
-      console.log('[Auth] No auth cookie found, opening login...');
-      ipcMain.emit('twitch-login');
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.on('did-finish-load', () => {
-          mainWindow.webContents.executeJavaScript(`
-            document.getElementById('twitch-login').click();
-          `).catch(() => {});
-        });
-      }
-    } else {
-      console.log('[Auth] Already logged in');
+      mainWindow.webContents.on('did-finish-load', () => {
+        mainWindow.webContents.executeJavaScript(
+          `document.getElementById('twitch-login').click();`
+        ).catch(() => {});
+      });
     }
   });
 });
 
-app.on('window-all-closed', () => {
-  // Don't quit - tray keeps app alive
-});
+app.on('window-all-closed', () => {});
 
 app.on('activate', () => {
   if (!mainWindow || mainWindow.isDestroyed()) {
