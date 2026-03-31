@@ -142,20 +142,17 @@ function createChatWindow(channel) {
 
   // Inject control bar
   chatWindow.webContents.on('dom-ready', () => {
-    // Inject FFZ settings via chrome.storage.local (FFZ uses extension storage, not localStorage)
+    // Inject FFZ settings via chrome.storage.local
     const ffzSettings = store.get('ffzSettings', null);
     if (ffzSettings) {
       const storageData = {};
       for (const [k, v] of Object.entries(ffzSettings)) {
         storageData['FFZ:setting:' + k] = JSON.stringify(v);
       }
-      chatWindow.webContents.executeJavaScript(`
-        if (chrome && chrome.storage && chrome.storage.local) {
-          chrome.storage.local.set(${JSON.stringify(storageData)}, function() {
-            console.log('[FFZ] Settings written to chrome.storage.local');
-          });
-        }
-      `).catch(() => {});
+      const ffzInjectCode = fs.readFileSync(path.join(__dirname, 'ffz-inject.js'), 'utf8');
+      chatWindow.webContents.executeJavaScript(`window.__TWITCHDOCK_FFZ_SETTINGS__ = ${JSON.stringify(storageData)};`)
+        .then(() => chatWindow.webContents.executeJavaScript(ffzInjectCode))
+        .catch(() => {});
     }
 
     // insertCSS injects as user-agent level - highest priority, can't be overridden
