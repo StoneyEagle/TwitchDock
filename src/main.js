@@ -119,6 +119,7 @@ function createChatWindow(channel) {
       preload: path.join(__dirname, 'preloads', 'preload-chat.js'),
       contextIsolation: false,
       nodeIntegration: false,
+      sandbox: false,
       partition: 'persist:twitch',
     },
   });
@@ -139,37 +140,32 @@ function createChatWindow(channel) {
   const chatUrl = `https://www.twitch.tv/popout/${key}/chat?popout=`;
   chatWindow.loadURL(chatUrl);
 
-  // Inject control bar from main process (preload can't reliably do this with contextIsolation:false)
+  // Inject control bar
   chatWindow.webContents.on('dom-ready', () => {
-    chatWindow.webContents.executeJavaScript(`
-      (function() {
-        if (document.getElementById('overlay-bar')) return;
-        var s = document.createElement('style');
-        s.textContent = '#overlay-bar{position:fixed;top:0;left:0;right:0;z-index:999999;display:flex;align-items:center;justify-content:space-between;height:32px;padding:0 8px;background:#1f1f23;border-bottom:1px solid #303035;font-family:system-ui,sans-serif;-webkit-app-region:drag;user-select:none}#overlay-bar .ch{font-size:13px;font-weight:600;color:#bf94ff}#overlay-bar .ctrls{display:flex;gap:4px;-webkit-app-region:no-drag}#overlay-bar .b{display:flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #3a3a3d;border-radius:4px;background:0 0;color:#adadb8;font-size:11px;font-family:inherit;cursor:pointer;transition:.15s}#overlay-bar .b:hover{background:#2f2f35;color:#efeff1}#overlay-bar .b.on{background:#9147ff;border-color:#9147ff;color:#fff}#overlay-bar .x{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:4px;background:0 0;color:#adadb8;cursor:pointer;transition:.15s;margin-left:4px}#overlay-bar .x:hover{background:#e04040;color:#fff}#overlay-bar svg{width:14px;height:14px;fill:currentColor}';
-        document.head.appendChild(s);
-        var bar = document.createElement('div');
-        bar.id = 'overlay-bar';
-        var ch = document.createElement('span');
-        ch.className = 'ch';
-        var m = location.pathname.match(/\\/popout\\/([^/]+)\\//);
-        if (m) ch.textContent = m[1];
-        bar.appendChild(ch);
-        var c = document.createElement('div');
-        c.className = 'ctrls';
-        function mkSvg(d){var s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',d);s.appendChild(p);return s;}
-        function mkBtn(cls,title,icon,label){var b=document.createElement('button');b.className=cls;b.title=title;b.appendChild(mkSvg(icon));if(label)b.appendChild(document.createTextNode(' '+label));return b;}
-        var bLock=mkBtn('b','Lock position','M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM8.9 6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H8.9V6zM18 20H6V10h12v10z','Lock');
-        var bPin=mkBtn('b','Always on top','M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z','Pin');
-        var bX=mkBtn('x','Close','M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z');
-        var slider=document.createElement('input');slider.type='range';slider.min='0.2';slider.max='1';slider.step='0.05';slider.value='${store.get('chatOpacity', 1)}';slider.title='Opacity';slider.style.cssText='width:60px;cursor:pointer;accent-color:#9147ff;vertical-align:middle';
-        slider.oninput=function(){console.log('__opacity__'+this.value);};
-        c.appendChild(slider);c.appendChild(bLock);c.appendChild(bPin);c.appendChild(bX);bar.appendChild(c);
-        document.body.prepend(bar);
-        bLock.onclick=function(){console.log('__lock__');};
-        bPin.onclick=function(){console.log('__pin__');};
-        bX.onclick=function(){window.close();};
-      })();
-    `).catch((e) => console.error('Bar inject error:', e));
+    // Inject FFZ settings via chrome.storage.local (FFZ uses extension storage, not localStorage)
+    const ffzSettings = store.get('ffzSettings', null);
+    if (ffzSettings) {
+      const storageData = {};
+      for (const [k, v] of Object.entries(ffzSettings)) {
+        storageData['FFZ:setting:' + k] = JSON.stringify(v);
+      }
+      chatWindow.webContents.executeJavaScript(`
+        if (chrome && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set(${JSON.stringify(storageData)}, function() {
+            console.log('[FFZ] Settings written to chrome.storage.local');
+          });
+        }
+      `).catch(() => {});
+    }
+
+    // insertCSS injects as user-agent level - highest priority, can't be overridden
+    const barCSS = fs.readFileSync(path.join(__dirname, 'bar.css'), 'utf8');
+    chatWindow.webContents.insertCSS(barCSS);
+    const opacity = store.get('chatOpacity', 1);
+    const barCode = fs.readFileSync(path.join(__dirname, 'bar.js'), 'utf8');
+    chatWindow.webContents.executeJavaScript(`window.__TWITCHDOCK_OPACITY__ = ${opacity};`)
+      .then(() => chatWindow.webContents.executeJavaScript(barCode))
+      .catch((e) => console.error('[Bar] Inject error:', e));
 
   });
 
@@ -205,6 +201,10 @@ function createChatWindow(channel) {
 // IPC handlers
 ipcMain.handle('get-ffz-settings', () => {
   return store.get('ffzSettings', null);
+});
+
+ipcMain.on('get-ffz-settings-sync', (event) => {
+  event.returnValue = store.get('ffzSettings', null);
 });
 
 ipcMain.handle('open-chat', (event, channel) => {
