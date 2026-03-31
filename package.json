@@ -24,7 +24,7 @@
       "target": [
         "portable"
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.ico"
     },
     "mac": {
       "target": "dmg",
