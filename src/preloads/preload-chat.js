@@ -1,7 +1,8 @@
 const { ipcRenderer } = require('electron');
 
-// Spoof Chrome browser identity
-require('./preload-twitch');
+// NOTE: don't load preload-twitch here - it overrides chrome.runtime
+// which breaks FFZ's extension content script. Browser spoofing is
+// only needed for the login window.
 
 // Apply imported FFZ settings
 ipcRenderer.invoke('get-ffz-settings').then((settings) => {

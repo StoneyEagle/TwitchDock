@@ -17,6 +17,9 @@
       "src/**/*",
       "assets/**/*"
     ],
+    "asarUnpack": [
+      "assets/extensions/**/*"
+    ],
     "win": {
       "target": [
         "portable"

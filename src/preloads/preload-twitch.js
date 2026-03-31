@@ -57,12 +57,19 @@ Object.defineProperty(navigator, 'languages', {
 });
 
 // Ensure window.chrome looks like real Chrome
+// But don't overwrite if FFZ extension already set it
 if (!window.chrome) window.chrome = {};
-if (!window.chrome.runtime) {
-  window.chrome.runtime = {
-    connect: () => {},
-    sendMessage: () => {},
-  };
+if (!window.chrome.runtime || !window.chrome.runtime.id) {
+  // Only set stubs if no real extension runtime exists
+  // Use a getter so FFZ's extension can overwrite it later
+  const existing = window.chrome.runtime;
+  if (!existing) {
+    Object.defineProperty(window.chrome, 'runtime', {
+      configurable: true,
+      writable: true,
+      value: { connect: () => {}, sendMessage: () => {} },
+    });
+  }
 }
 if (!window.chrome.csi) window.chrome.csi = () => ({});
 if (!window.chrome.loadTimes) window.chrome.loadTimes = () => ({});
