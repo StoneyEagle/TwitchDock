@@ -5,42 +5,45 @@
   "author": "Stoney_Eagle",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
-    "build": "electron-builder --dir",
-    "dist": "electron-builder"
+  "start": "electron .",
+  "dev": "electron . --dev",
+  "build": "electron-builder --dir",
+  "dist": "electron-builder"
   },
   "build": {
-    "appId": "com.stoneyeagle.twitchdock",
-    "productName": "TwitchDock",
-    "files": [
-      "src/**/*",
-      "assets/**/*"
-    ],
-    "asarUnpack": [
-      "assets/extensions/**/*"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
-    },
-    "nsis": {
-      "oneClick": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "TwitchDock"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.png"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
-    }
+  "appId": "com.stoneyeagle.twitchdock",
+  "productName": "TwitchDock",
+  "files": [
+    "src/**/*",
+    "assets/**/*"
+  ],
+  "asarUnpack": [
+    "assets/extensions/**/*"
+  ],
+  "win": {
+    "target": "nsis",
+    "icon": "assets/icon.ico"
+  },
+  "nsis": {
+    "oneClick": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "TwitchDock"
+  },
+  "mac": {
+    "target": "dmg",
+    "icon": "assets/icon.png"
+  },
+  "linux": {
+    "target": "AppImage",
+    "icon": "assets/icon.png"
+  }
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^26.8.1"
+  "electron": "^33.0.0",
+  "electron-builder": "^26.8.1"
+  },
+  "overrides": {
+  "fast-uri": "^3.1.1"
   }
 }
